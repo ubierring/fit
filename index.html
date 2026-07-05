@@ -7,9 +7,13 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="theme-color" content="#c0c0c0" />
+
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23c0c0c0%22/><text y=%22.9em%22 x=%225%22 font-size=%2280%22>💿</text></svg>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23c0c0c0%22/><text y=%22.9em%22 x=%225%22 font-size=%2280%22>💿</text></svg>">
+
 <title>fit-generator-3000</title>
 <style>
-html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #c0c0c0; }
 .win98 {
   --face: #c0c0c0;
   --dark: #808080;
@@ -100,7 +104,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
   border: 2px inset var(--face);
   background: #ffffff;
   overflow: hidden;
-  touch-action: none; /* Verhindert ungewolltes Scrollen beim Skalieren/Verschieben */
+  touch-action: none;
 }
 .win98-collage-img {
   position: absolute;
@@ -244,12 +248,12 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
 .win98-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .win98-empty { color: #444; font-style: italic; padding: 20px 4px; text-align: center; }
 
-/* POPUP NACH UNTEN VERSCHOBEN FÜR DYNAMIC ISLAND */
+/* GEÄNDERT: TOAST NACH UNTEN VERSETZT */
 .win98-toast {
   position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
   background: var(--face); border: 2px outset var(--face);
   padding: 6px 14px; font-size: 12px; z-index: 999;
-  box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
+  box-shadow: 2px 2px 8px rgba(0,0,0,0.25);
 }
 
 .win98-outfit-card { border: 2px groove #a0a0a0; padding: 8px; margin-bottom: 0; cursor: pointer; }
@@ -324,16 +328,14 @@ function load() {
       state.pieces = parsed.pieces || [];
       state.outfits = parsed.outfits || [];
     }
-  } catch (e) { /* nothing saved yet */ }
+  } catch (e) { }
 }
 
-function persist(suppressAlert) {
+function persist() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ pieces: state.pieces, outfits: state.outfits }));
   } catch (e) {
-    if (!suppressAlert) {
-      showToast("Speichern fehlgeschlagen (Speicher voll?)");
-    }
+    showToast("Speichern fehlgeschlagen (Speicher voll?)");
   }
 }
 
@@ -412,7 +414,7 @@ function addPiece() {
     name: (state.newName || "").trim(),
   };
   state.pieces.push(piece);
-  persist(false);
+  persist();
   state.newImage = null;
   state.newName = "";
   showToast("Teil hinzugefügt");
@@ -424,7 +426,7 @@ function deletePiece(id) {
     .map(function (o) { return Object.assign({}, o, { pieceIds: o.pieceIds.filter(function (pid) { return pid !== id; }) }); })
     .filter(function (o) { return o.pieceIds.length > 0; });
   state.selectedIds = state.selectedIds.filter(function (pid) { return pid !== id; });
-  persist(true);
+  persist();
   render();
 }
 
@@ -455,7 +457,7 @@ function saveOutfit() {
     layout: Object.assign({}, state.builderLayout),
   };
   state.outfits.push(outfit);
-  persist(false);
+  persist();
   state.selectedIds = [];
   state.builderLayout = {};
   state.customTag = "";
@@ -480,7 +482,7 @@ function addCustomTagToPanel() {
 
 function deleteOutfit(id) {
   state.outfits = state.outfits.filter(function (o) { return o.id !== id; });
-  persist(false);
+  persist();
   render();
 }
 
@@ -537,35 +539,78 @@ function confirmImport() {
   if (!state.pendingImport) return;
   state.pieces = state.pendingImport.pieces;
   state.outfits = state.pendingImport.outfits;
-  persist(false);
+  persist();
   state.pendingImport = null;
   showToast("Daten importiert");
   render();
 }
 function cancelImport() { state.pendingImport = null; render(); }
 
-/* ---------- drag & scale ---------- */
+/* ---------- DRAG & SCALE (PINCH-TO-ZOOM) ---------- */
 
 function startDrag(e, pieceId) {
   e.preventDefault();
+  
+  var base = state.builderLayout[pieceId] || { dx: 0, dy: 0, scale: 1 };
+  if (base.scale === undefined) base.scale = 1;
+  
+  var baseX = base.dx || 0, baseY = base.dy || 0;
+  var baseScale = base.scale;
+  var imgEl = e.currentTarget;
+
+  // Wenn zwei Finger auf dem Display liegen -> Geste für Skalierung starten
+  if (e.touches && e.touches.length === 2) {
+    var startDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+
+    function onPinchMove(ev) {
+      if (ev.touches && ev.touches.length === 2) {
+        var curDist = Math.hypot(
+          ev.touches[0].clientX - ev.touches[1].clientX,
+          ev.touches[0].clientY - ev.touches[1].clientY
+        );
+        var newScale = baseScale * (curDist / startDist);
+        if (newScale < 0.3) newScale = 0.3; // Min-Zoom
+        if (newScale > 3.0) newScale = 3.0; // Max-Zoom
+        
+        imgEl.style.transform = "translate(calc(-50% + " + baseX + "px), " + baseY + "px) scale(" + newScale + ")";
+        state.builderLayout[pieceId].scale = newScale;
+      }
+    }
+
+    function onPinchUp() {
+      window.removeEventListener("touchmove", onPinchMove);
+      window.removeEventListener("touchend", onPinchUp);
+    }
+
+    window.addEventListener("touchmove", onPinchMove, { passive: false });
+    window.addEventListener("touchend", onPinchUp);
+    return;
+  }
+
+  // Normaler 1-Finger Drag zum Verschieben
   var point = e.touches ? e.touches[0] : e;
   var startX = point.clientX, startY = point.clientY;
-  var base = state.builderLayout[pieceId] || { dx: 0, dy: 0 };
-  var baseX = base.dx || 0, baseY = base.dy || 0;
-  var imgEl = e.currentTarget;
+
   function onMove(ev) {
     var p2 = ev.touches ? ev.touches[0] : ev;
     var dx = baseX + (p2.clientX - startX);
     var dy = baseY + (p2.clientY - startY);
-    imgEl.style.transform = "translate(calc(-50% + " + dx + "px), " + dy + "px)";
-    state.builderLayout[pieceId] = { dx: dx, dy: dy };
+    
+    imgEl.style.transform = "translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + (state.builderLayout[pieceId].scale || 1) + ")";
+    state.builderLayout[pieceId].dx = dx;
+    state.builderLayout[pieceId].dy = dy;
   }
+
   function onUp() {
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("mouseup", onUp);
     window.removeEventListener("touchmove", onMove);
     window.removeEventListener("touchend", onUp);
   }
+
   window.addEventListener("mousemove", onMove);
   window.addEventListener("mouseup", onUp);
   window.addEventListener("touchmove", onMove, { passive: false });
@@ -575,22 +620,22 @@ window.startDrag = startDrag;
 
 /* ---------- rendering ---------- */
 
-function collageHtml(items, layout, editable, isThumbnail) {
+function collageHtml(items, layout, editable, isThumb) {
   layout = layout || {};
   var byCat = {};
   items.forEach(function (p) { (byCat[p.category] = byCat[p.category] || []).push(p); });
   var imgs = "";
+  var factor = isThumb ? 0.46 : 1.0;
   
-  // Skalierungsfaktor für die kleinen Outfit-Karten in der Übersicht
-  var scale = isThumbnail ? 0.45 : 1.0;
-
   STACK_ORDER.forEach(function (catId, idx) {
     (byCat[catId] || []).forEach(function (p) {
-      var off = layout[p.id] || { dx: 0, dy: 0 };
-      var dx = (off.dx || 0) * scale;
-      var dy = (off.dy || 0) * scale;
+      var off = layout[p.id] || { dx: 0, dy: 0, scale: 1 };
+      var dx = (off.dx || 0) * factor;
+      var dy = (off.dy || 0) * factor;
+      var currentScale = off.scale !== undefined ? off.scale : 1;
+
       var pos = "top:" + COLLAGE_POS[catId].top + "%;height:" + COLLAGE_POS[catId].height + "%;z-index:" + (idx + 1) +
-        ";transform:translate(calc(-50% + " + dx + "px), " + dy + "px);";
+        ";transform:translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + currentScale + ");";
       var cls = "win98-collage-img" + (editable ? " draggable" : "");
       var handlers = editable ? " onmousedown=\"startDrag(event,'" + p.id + "')\" ontouchstart=\"startDrag(event,'" + p.id + "')\"" : "";
       imgs += '<img src="' + p.image + '" alt="' + esc(categoryLabel(catId)) + '" draggable="false" class="' + cls + '" style="' + pos + '"' + handlers + " />";
@@ -639,12 +684,11 @@ function renderBauen() {
   html += "<span>Klicke Teile an, um sie zu kombinieren.</span>";
   html += '<button class="win98-btn small" ' + (state.pieces.length === 0 ? "disabled" : "") + ' onclick="randomizeSelection()">🎲 Zufall</button></div>';
 
-  // HIER GEÄNDERT: Collage & Speichern sitzen jetzt ganz oben im Bauen-Tab!
   if (state.selectedIds.length > 0) {
     var selPieces = state.selectedIds.map(getPiece).filter(Boolean);
     html += '<div class="win98-group" style="margin-top:4px"><div class="win98-legend">Collage</div>';
     html += collageHtml(selPieces, state.builderLayout, true, false);
-    html += '<div class="win98-collage-hint">Teile lassen sich per Ziehen verschieben.</div></div>';
+    html += '<div class="win98-collage-hint">Teile lassen sich ziehen & mit 2 Fingern skalieren.</div></div>';
 
     html += '<div class="win98-group"><div class="win98-legend">Outfit speichern (' + state.selectedIds.length + ' Teile)</div>';
     html += '<div class="win98-field-row"><input id="outfitNameInput" class="win98-input" type="text" placeholder="Name (optional)" /></div>';
@@ -660,8 +704,7 @@ function renderBauen() {
 
   if (state.pieces.length === 0) html += '<div class="win98-empty">Füge zuerst Teile im Schrank hinzu.</div>';
 
-  // Die Liste aller Kleidungsstücke zum Anklicken folgt sauber darunter
-  html += '<div class="win98-grid3" style="margin-top:10px">';
+  html += '<div class="win98-grid3">';
   state.pieces.forEach(function (p) {
     var selected = state.selectedIds.indexOf(p.id) !== -1;
     html += '<div class="win98-thumb-wrap" style="cursor:pointer" onclick="togglePiece(\'' + p.id + "')\">";
@@ -703,8 +746,8 @@ function renderOutfits() {
 }
 
 function render() {
-  var bodyEl = document.querySelector('.win98-body');
-  var currentScroll = bodyEl ? bodyEl.scrollTop : 0;
+  var bodyEl = document.querySelector(".win98-body");
+  var savedScrollTop = bodyEl ? bodyEl.scrollTop : 0;
 
   var body = state.tab === "schrank" ? renderSchrank() : state.tab === "bauen" ? renderBauen() : renderOutfits();
 
@@ -746,9 +789,9 @@ function render() {
   html += "</div>";
   document.getElementById("app").innerHTML = html;
 
-  var newBodyEl = document.querySelector('.win98-body');
+  var newBodyEl = document.querySelector(".win98-body");
   if (newBodyEl) {
-    newBodyEl.scrollTop = currentScroll;
+    newBodyEl.scrollTop = savedScrollTop;
   }
 }
 
