@@ -264,6 +264,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 "use strict";
 
 var CATEGORIES = [
+  { id: "caps", label: "Caps" },
   { id: "oben", label: "Oberteil" },
   { id: "unten", label: "Hose" },
   { id: "jacke", label: "Jacke/Mantel" },
@@ -272,13 +273,14 @@ var CATEGORIES = [
 ];
 var DEFAULT_TAGS = ["Casual", "Design", "Assi", "Chic", "Übergang", "Sommer", "Winter"];
 var STORAGE_KEY = "wardrobe-data";
-var STACK_ORDER = ["schuhe", "unten", "oben", "jacke", "acc"];
+var STACK_ORDER = ["schuhe", "unten", "oben", "jacke", "acc", "caps"];
 var COLLAGE_POS = {
-  schuhe: { top: 76, height: 24 },
-  unten: { top: 40, height: 56 },
-  oben: { top: 16, height: 46 },
+  caps: { top: 0, height: 18 },
+  acc: { top: 4, height: 20 },
   jacke: { top: 10, height: 52 },
-  acc: { top: 0, height: 20 },
+  oben: { top: 16, height: 46 },
+  unten: { top: 40, height: 56 },
+  schuhe: { top: 76, height: 24 },
 };
 
 var state = {
@@ -295,6 +297,7 @@ var state = {
   outfitTags: [],
   customTag: "",
   builderLayout: {},
+  activeStackOrder: [], // Hält die ID-Reihenfolge beim Verschieben für das Live-Z-Indexing fest
   filterTag: "Alle",
   viewOutfit: null,
   pendingImport: null,
@@ -358,7 +361,6 @@ function compressImage(file) {
         canvas.height = height;
         var ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
-        // HIER GEÄNDERT AUF image/png FÜR TRANSPARENZ
         resolve(canvas.toDataURL("image/png"));
       };
       img.onerror = reject;
@@ -415,22 +417,34 @@ function addPiece() {
 function deletePiece(id) {
   state.pieces = state.pieces.filter(function (p) { return p.id !== id; });
   state.outfits = state.outfits
-    .map(function (o) { return Object.assign({}, o, { pieceIds: o.pieceIds.filter(function (pid) { return pid !== id; }) }); })
+    .map(function (o) {
+      var filteredIds = (o.pieceIds || []).filter(function (pid) { return pid !== id; });
+      var customOrder = (o.customOrder || []).filter(function (pid) { return pid !== id; });
+      return Object.assign({}, o, { pieceIds: filteredIds, customOrder: customOrder });
+    })
     .filter(function (o) { return o.pieceIds.length > 0; });
   state.selectedIds = state.selectedIds.filter(function (pid) { return pid !== id; });
+  state.activeStackOrder = state.activeStackOrder.filter(function (pid) { return pid !== id; });
   persist();
   render();
 }
 
 function togglePiece(id) {
   var i = state.selectedIds.indexOf(id);
-  if (i === -1) state.selectedIds.push(id); else state.selectedIds.splice(i, 1);
+  if (i === -1) {
+    state.selectedIds.push(id);
+    state.activeStackOrder.push(id);
+  } else {
+    state.selectedIds.splice(i, 1);
+    state.activeStackOrder = state.activeStackOrder.filter(function (pid) { return pid !== id; });
+  }
   render();
 }
 
 function clearSelection() {
   state.selectedIds = [];
   state.builderLayout = {};
+  state.activeStackOrder = [];
   render();
 }
 
@@ -447,11 +461,13 @@ function saveOutfit() {
     tags: tags,
     pieceIds: state.selectedIds.slice(),
     layout: Object.assign({}, state.builderLayout),
+    customOrder: state.activeStackOrder.slice() // Speichert die genaue Layer-Anordnung ab
   };
   state.outfits.push(outfit);
   persist();
   state.selectedIds = [];
   state.builderLayout = {};
+  state.activeStackOrder = [];
   state.customTag = "";
   showToast("Outfit gespeichert");
   state.tab = "outfits";
@@ -494,6 +510,11 @@ function randomizeSelection() {
   });
   state.selectedIds = picks.map(function (p) { return p.id; });
   state.builderLayout = {};
+  // Standard-Layer-Reihenfolge für den Zufallsgenerator anwenden
+  state.activeStackOrder = [];
+  STACK_ORDER.forEach(function (catId) {
+    picks.forEach(function (p) { if (p.category === catId) state.activeStackOrder.push(p.id); });
+  });
   render();
 }
 
@@ -540,10 +561,26 @@ function cancelImport() { state.pendingImport = null; render(); }
 
 /* ---------- drag & scale functionality ---------- */
 
+// Schiebt das bewegte Teil im dynamischen Stack nach ganz oben (Z-Index)
+function pushToTop(pieceId) {
+  state.activeStackOrder = state.activeStackOrder.filter(function (pid) { return pid !== pieceId; });
+  state.activeStackOrder.push(pieceId);
+}
+
 function startDrag(e, pieceId) {
   e.preventDefault();
   
-  // Falls Multi-Touch (Pinch-to-Zoom für Skalierung) vorliegt
+  // Bringt das Element beim Antippen/Klicken sofort nach oben
+  pushToTop(pieceId);
+  var activeImgs = document.querySelectorAll(".win98-collage-img");
+  activeImgs.forEach(function (el) {
+    var pid = el.getAttribute("data-id");
+    if (pid) {
+      var dynamicZ = state.activeStackOrder.indexOf(pid);
+      if (dynamicZ !== -1) el.style.zIndex = dynamicZ + 1;
+    }
+  });
+
   if (e.touches && e.touches.length === 2) {
     startPinch(e, pieceId);
     return;
@@ -557,7 +594,7 @@ function startDrag(e, pieceId) {
   var imgEl = e.currentTarget;
   
   function onMove(ev) {
-    if (ev.touches && ev.touches.length === 2) return; // Zu Pinch wechseln
+    if (ev.touches && ev.touches.length === 2) return;
     var p2 = ev.touches ? ev.touches[0] : ev;
     var dx = baseX + (p2.clientX - startX);
     var dy = baseY + (p2.clientY - startY);
@@ -578,23 +615,25 @@ function startDrag(e, pieceId) {
   window.addEventListener("touchend", onUp);
 }
 
-// Mausrad-Skalierung am Desktop
 function handleWheelScale(e, pieceId) {
   e.preventDefault();
+  pushToTop(pieceId);
   var base = state.builderLayout[pieceId] || { dx: 0, dy: 0, scale: 1 };
   var dx = base.dx || 0;
   var dy = base.dy || 0;
   var currentScale = base.scale || 1;
   
-  // Skalierungsschritt berechnen
   var delta = e.deltaY < 0 ? 0.05 : -0.05;
   var newScale = Math.max(0.3, Math.min(2.5, currentScale + delta));
   
   state.builderLayout[pieceId] = { dx: dx, dy: dy, scale: newScale };
   e.currentTarget.style.transform = "translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + newScale + ")";
+  
+  // Z-Index-Korrektur beim Scrollen
+  var dynamicZ = state.activeStackOrder.indexOf(pieceId);
+  if (dynamicZ !== -1) e.currentTarget.style.zIndex = dynamicZ + 1;
 }
 
-// Mobile Pinch-to-Zoom Skalierung (2 Finger Geste)
 function startPinch(e, pieceId) {
   var base = state.builderLayout[pieceId] || { dx: 0, dy: 0, scale: 1 };
   var dx = base.dx || 0;
@@ -634,25 +673,48 @@ window.handleWheelScale = handleWheelScale;
 
 /* ---------- rendering ---------- */
 
-function collageHtml(items, layout, editable) {
+function collageHtml(items, layout, editable, outfitObj) {
   layout = layout || {};
-  var byCat = {};
-  items.forEach(function (p) { (byCat[p.category] = byCat[p.category] || []).push(p); });
   var imgs = "";
-  STACK_ORDER.forEach(function (catId, idx) {
-    (byCat[catId] || []).forEach(function (p) {
-      var off = layout[p.id] || { dx: 0, dy: 0, scale: 1 };
-      var dx = off.dx || 0;
-      var dy = off.dy || 0;
-      var scale = off.scale || 1;
-      
-      var pos = "top:" + COLLAGE_POS[catId].top + "%;height:" + COLLAGE_POS[catId].height + "%;z-index:" + (idx + 1) +
-        ";transform:translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + scale + ");";
-      var cls = "win98-collage-img" + (editable ? " draggable" : "");
-      var handlers = editable ? " onmousedown=\"startDrag(event,'" + p.id + "')\" ontouchstart=\"startDrag(event,'" + p.id + "')\" onwheel=\"handleWheelScale(event,'" + p.id + "')\"" : "";
-      imgs += '<img src="' + p.image + '" alt="' + esc(categoryLabel(catId)) + '" draggable="false" class="' + cls + '" style="' + pos + '"' + handlers + " />";
+  
+  // Bestimmung der Layer-Reihenfolge
+  var order = [];
+  if (editable) {
+    // Im Baumodus nutzen wir die interaktive Reihenfolge
+    order = state.activeStackOrder.slice();
+    // Absicherung für neu hinzukommende Elemente
+    items.forEach(function (p) { if (order.indexOf(p.id) === -1) order.push(p.id); });
+  } else if (outfitObj && outfitObj.customOrder && outfitObj.customOrder.length > 0) {
+    // Wenn ein gespeichertes Outfit eine eigene Anordnung hat
+    order = outfitObj.customOrder.slice();
+    items.forEach(function (p) { if (order.indexOf(p.id) === -1) order.push(p.id); });
+  } else {
+    // Fallback auf klassische Sortierung nach Kategorie
+    var byCat = {};
+    items.forEach(function (p) { (byCat[p.category] = byCat[p.category] || []).push(p); });
+    STACK_ORDER.forEach(function (catId) {
+      (byCat[catId] || []).forEach(function (p) { order.push(p.id); });
     });
+  }
+
+  order.forEach(function (pId, idx) {
+    var p = items.find(function (item) { return item.id === pId; });
+    if (!p) return;
+    
+    var off = layout[p.id] || { dx: 0, dy: 0, scale: 1 };
+    var dx = off.dx || 0;
+    var dy = off.dy || 0;
+    var scale = off.scale || 1;
+    
+    var basePos = COLLAGE_POS[p.category] || { top: 20, height: 40 };
+    var pos = "top:" + basePos.top + "%;height:" + basePos.height + "%;z-index:" + (idx + 1) +
+      ";transform:translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + scale + ");";
+    var cls = "win98-collage-img" + (editable ? " draggable" : "");
+    var handlers = editable ? " onmousedown=\"startDrag(event,'" + p.id + "')\" ontouchstart=\"startDrag(event,'" + p.id + "')\" onwheel=\"handleWheelScale(event,'" + p.id + "')\"" : "";
+    
+    imgs += '<img src="' + p.image + '" data-id="' + p.id + '" alt="' + esc(categoryLabel(p.category)) + '" draggable="false" class="' + cls + '" style="' + pos + '"' + handlers + " />";
   });
+
   var empty = items.length === 0 ? '<div class="win98-empty">Keine Teile ausgewählt.</div>' : "";
   return '<div class="win98-collage" style="aspect-ratio:3/4">' + empty + imgs + "</div>";
 }
@@ -711,8 +773,8 @@ function renderBauen() {
   if (state.selectedIds.length > 0) {
     var selPieces = state.selectedIds.map(getPiece).filter(Boolean);
     html += '<div class="win98-group" style="margin-top:14px"><div class="win98-legend">Collage</div>';
-    html += collageHtml(selPieces, state.builderLayout, true);
-    html += '<div class="win98-collage-hint">Ziehen = Verschieben | 2 Finger / Mausrad = Skalieren</div></div>';
+    html += collageHtml(selPieces, state.builderLayout, true, null);
+    html += '<div class="win98-collage-hint">Ziehen = Verschieben & Vorholen | Mausrad/Pinch = Skalieren</div></div>';
 
     html += '<div class="win98-group"><div class="win98-legend">Outfit speichern (' + state.selectedIds.length + ' Teile)</div>';
     html += '<div class="win98-field-row"><input id="outfitNameInput" class="win98-input" type="text" placeholder="Name (optional)" /></div>';
@@ -749,7 +811,7 @@ function renderOutfits() {
     html += '<button class="win98-btn small" onclick="event.stopPropagation();deleteOutfit(\'' + o.id + '\')">Löschen</button></div><div style="margin-bottom:6px">';
     o.tags.forEach(function (t) { html += '<span class="win98-badge">' + esc(t) + "</span>"; });
     html += "</div>";
-    html += collageHtml(o.pieceIds.map(getPiece).filter(Boolean), o.layout || {}, false);
+    html += collageHtml((o.pieceIds || []).map(getPiece).filter(Boolean), o.layout || {}, false, o);
     html += "</div>";
   });
   html += "</div>";
@@ -782,7 +844,7 @@ function render() {
     html += '<div class="win98-dialog-body"><div style="margin-bottom:8px">';
     o.tags.forEach(function (t) { html += '<span class="win98-badge">' + esc(t) + "</span>"; });
     html += "</div>";
-    html += collageHtml(o.pieceIds.map(getPiece).filter(Boolean), o.layout || {}, false);
+    html += collageHtml((o.pieceIds || []).map(getPiece).filter(Boolean), o.layout || {}, false, o);
     html += '</div><div class="win98-dialog-actions"><button class="win98-btn" onclick="closeViewOutfit()">Schließen</button></div></div></div>';
   }
 
