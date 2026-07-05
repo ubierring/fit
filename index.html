@@ -275,19 +275,22 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 var CATEGORIES = [
   { id: "oben", label: "Oberteil" },
   { id: "unten", label: "Hose" },
-  { id: "jacke", label: "Jacke/Mantel" },
+  { id: "jacke", label: "Jacke" },
+  { id: "cap", label: "Cap" },
   { id: "schuhe", label: "Schuhe" },
   { id: "acc", label: "Accessoire" },
 ];
 var DEFAULT_TAGS = ["Casual", "Design", "Assi", "Chic", "Übergang", "Sommer", "Winter"];
 var STORAGE_KEY = "wardrobe-data";
-var STACK_ORDER = ["schuhe", "unten", "oben", "jacke", "acc"];
+var STACK_ORDER = ["schuhe", "unten", "oben", "jacke", "acc", "cap"];
 var COLLAGE_POS = {
   schuhe: { top: 76, height: 24 },
   unten: { top: 40, height: 56 },
   oben: { top: 16, height: 46 },
   jacke: { top: 10, height: 52 },
   acc: { top: 0, height: 20 },
+  // Caps liegen standardmäßig weit oben und vor allen anderen Teilen.
+  cap: { top: -2, height: 20 },
 };
 
 var state = {
@@ -550,71 +553,68 @@ function cancelImport() { state.pendingImport = null; render(); }
 
 function startDrag(e, pieceId) {
   e.preventDefault();
-  
-  var base = state.builderLayout[pieceId] || { dx: 0, dy: 0, scale: 1 };
-  if (base.scale === undefined) base.scale = 1;
-  
-  var baseX = base.dx || 0, baseY = base.dy || 0;
-  var baseScale = base.scale;
+
+  // Jede Interaktion holt das Teil nach vorne und legt ein vollständiges Layout an.
+  var base = state.builderLayout[pieceId] || { dx: 0, dy: 0, scale: 1, z: 0 };
+  state.builderLayout[pieceId] = base;
+  base.z = Date.now();
+
   var imgEl = e.currentTarget;
+  var pointers = new Map();
+  var startLayout = { dx: base.dx || 0, dy: base.dy || 0, scale: base.scale || 1 };
+  var gesture = null;
 
-  // Wenn zwei Finger auf dem Display liegen -> Geste für Skalierung starten
-  if (e.touches && e.touches.length === 2) {
-    var startDist = Math.hypot(
-      e.touches[0].clientX - e.touches[1].clientX,
-      e.touches[0].clientY - e.touches[1].clientY
-    );
-
-    function onPinchMove(ev) {
-      if (ev.touches && ev.touches.length === 2) {
-        var curDist = Math.hypot(
-          ev.touches[0].clientX - ev.touches[1].clientX,
-          ev.touches[0].clientY - ev.touches[1].clientY
-        );
-        var newScale = baseScale * (curDist / startDist);
-        if (newScale < 0.3) newScale = 0.3; // Min-Zoom
-        if (newScale > 3.0) newScale = 3.0; // Max-Zoom
-        
-        imgEl.style.transform = "translate(calc(-50% + " + baseX + "px), " + baseY + "px) scale(" + newScale + ")";
-        state.builderLayout[pieceId].scale = newScale;
-      }
-    }
-
-    function onPinchUp() {
-      window.removeEventListener("touchmove", onPinchMove);
-      window.removeEventListener("touchend", onPinchUp);
-    }
-
-    window.addEventListener("touchmove", onPinchMove, { passive: false });
-    window.addEventListener("touchend", onPinchUp);
-    return;
+  function distance(a, b) {
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
   }
-
-  // Normaler 1-Finger Drag zum Verschieben
-  var point = e.touches ? e.touches[0] : e;
-  var startX = point.clientX, startY = point.clientY;
-
+  function apply() {
+    imgEl.style.transform = "translate(calc(-50% + " + base.dx + "px), " + base.dy + "px) scale(" + base.scale + ")";
+  }
+  function beginGesture() {
+    var pts = Array.from(pointers.values());
+    if (pts.length >= 2) {
+      gesture = {
+        dist: distance(pts[0], pts[1]),
+        midX: (pts[0].clientX + pts[1].clientX) / 2,
+        midY: (pts[0].clientY + pts[1].clientY) / 2,
+        dx: base.dx, dy: base.dy, scale: base.scale
+      };
+    } else if (pts.length === 1) {
+      gesture = { x: pts[0].clientX, y: pts[0].clientY, dx: base.dx, dy: base.dy, scale: base.scale };
+    }
+  }
   function onMove(ev) {
-    var p2 = ev.touches ? ev.touches[0] : ev;
-    var dx = baseX + (p2.clientX - startX);
-    var dy = baseY + (p2.clientY - startY);
-    
-    imgEl.style.transform = "translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + (state.builderLayout[pieceId].scale || 1) + ")";
-    state.builderLayout[pieceId].dx = dx;
-    state.builderLayout[pieceId].dy = dy;
+    if (!pointers.has(ev.pointerId)) return;
+    pointers.set(ev.pointerId, ev);
+    var pts = Array.from(pointers.values());
+    if (pts.length >= 2) {
+      if (!gesture || gesture.dist === undefined) beginGesture();
+      var d = distance(pts[0], pts[1]);
+      base.scale = Math.max(0.3, Math.min(3, gesture.scale * d / gesture.dist));
+      var mx = (pts[0].clientX + pts[1].clientX) / 2, my = (pts[0].clientY + pts[1].clientY) / 2;
+      base.dx = gesture.dx + (mx - gesture.midX);
+      base.dy = gesture.dy + (my - gesture.midY);
+    } else if (pts.length === 1) {
+      if (!gesture || gesture.x === undefined) beginGesture();
+      base.dx = gesture.dx + (pts[0].clientX - gesture.x);
+      base.dy = gesture.dy + (pts[0].clientY - gesture.y);
+    }
+    apply();
   }
-
-  function onUp() {
-    window.removeEventListener("mousemove", onMove);
-    window.removeEventListener("mouseup", onUp);
-    window.removeEventListener("touchmove", onMove);
-    window.removeEventListener("touchend", onUp);
+  function onUp(ev) {
+    pointers.delete(ev.pointerId);
+    if (pointers.size) beginGesture();
+    else {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    }
   }
-
-  window.addEventListener("mousemove", onMove);
-  window.addEventListener("mouseup", onUp);
-  window.addEventListener("touchmove", onMove, { passive: false });
-  window.addEventListener("touchend", onUp);
+  pointers.set(e.pointerId, e);
+  try { imgEl.setPointerCapture(e.pointerId); } catch (_) {}
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
 }
 window.startDrag = startDrag;
 
@@ -634,10 +634,11 @@ function collageHtml(items, layout, editable, isThumb) {
       var dy = (off.dy || 0) * factor;
       var currentScale = off.scale !== undefined ? off.scale : 1;
 
-      var pos = "top:" + COLLAGE_POS[catId].top + "%;height:" + COLLAGE_POS[catId].height + "%;z-index:" + (idx + 1) +
+      var zIndex = off.z ? (10000000000000 + off.z) : (idx + 1);
+      var pos = "top:" + COLLAGE_POS[catId].top + "%;height:" + COLLAGE_POS[catId].height + "%;z-index:" + zIndex +
         ";transform:translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + currentScale + ");";
       var cls = "win98-collage-img" + (editable ? " draggable" : "");
-      var handlers = editable ? " onmousedown=\"startDrag(event,'" + p.id + "')\" ontouchstart=\"startDrag(event,'" + p.id + "')\"" : "";
+      var handlers = editable ? " onpointerdown=\"startDrag(event,'" + p.id + "')\"" : "";
       imgs += '<img src="' + p.image + '" alt="' + esc(categoryLabel(catId)) + '" draggable="false" class="' + cls + '" style="' + pos + '"' + handlers + " />";
     });
   });
