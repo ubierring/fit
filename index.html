@@ -25,8 +25,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   font-family: Tahoma, "Segoe UI", "MS Sans Serif", Arial, sans-serif;
   font-size: 12px;
   color: #000;
-  /* FIX: Hinzufügen des iOS-Sicherheitsabstands für Dynamic Island / Notch */
-  padding-top: env(safe-area-inset-top, 0px);
+  padding: 0;
   margin: 0;
   box-sizing: border-box;
   overflow: hidden;
@@ -34,9 +33,8 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 .win98 * { box-sizing: border-box; }
 .win98-window {
   width: 100%;
-  /* FIX: Zieht den Abstand oben von der Gesamthöhe ab, damit die Statusleiste unten nicht aus dem Bildschirm rutscht */
-  height: calc(100vh - env(safe-area-inset-top, 0px));
-  height: calc(100dvh - env(safe-area-inset-top, 0px));
+  height: 100vh;
+  height: 100dvh;
   background: var(--face);
   border: none;
   box-shadow: none;
@@ -48,7 +46,8 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   color: #fff;
   font-weight: bold;
   font-size: 13px;
-  padding: 3px 4px 3px 6px;
+  /* HIER WURDE NUR DER ABSTAND NACH OBEN FÜR DIE DYNAMIC ISLAND ERGÄNZT */
+  padding: calc(3px + env(safe-area-inset-top, 0px)) 4px 3px 6px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -512,4 +511,226 @@ function handleExport() {
 
 function handleImportInput(input) {
   var file = input.files && input.files[0];
-  if (!file
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function (ev) {
+    try {
+      var parsed = JSON.parse(ev.target.result);
+      if (!parsed || !Array.isArray(parsed.pieces) || !Array.isArray(parsed.outfits)) throw new Error("invalid");
+      state.pendingImport = parsed;
+      render();
+    } catch (e) {
+      showToast("Datei ungültig");
+    }
+  };
+  reader.readAsText(file);
+  input.value = "";
+}
+
+function confirmImport() {
+  if (!state.pendingImport) return;
+  state.pieces = state.pendingImport.pieces;
+  state.outfits = state.pendingImport.outfits;
+  persist();
+  state.pendingImport = null;
+  showToast("Daten importiert");
+  render();
+}
+function cancelImport() { state.pendingImport = null; render(); }
+
+/* ---------- drag (no full re-render while dragging, for smoothness) ---------- */
+
+function startDrag(e, pieceId) {
+  e.preventDefault();
+  var point = e.touches ? e.touches[0] : e;
+  var startX = point.clientX, startY = point.clientY;
+  var base = state.builderLayout[pieceId] || { dx: 0, dy: 0 };
+  var baseX = base.dx || 0, baseY = base.dy || 0;
+  var imgEl = e.currentTarget;
+  function onMove(ev) {
+    var p2 = ev.touches ? ev.touches[0] : ev;
+    var dx = baseX + (p2.clientX - startX);
+    var dy = baseY + (p2.clientY - startY);
+    imgEl.style.transform = "translate(calc(-50% + " + dx + "px), " + dy + "px)";
+    state.builderLayout[pieceId] = { dx: dx, dy: dy };
+  }
+  function onUp() {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+    window.removeEventListener("touchmove", onMove);
+    window.removeEventListener("touchend", onUp);
+  }
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+  window.addEventListener("touchmove", onMove, { passive: false });
+  window.addEventListener("touchend", onUp);
+}
+window.startDrag = startDrag;
+
+/* ---------- rendering ---------- */
+
+function collageHtml(items, layout, editable) {
+  layout = layout || {};
+  var byCat = {};
+  items.forEach(function (p) { (byCat[p.category] = byCat[p.category] || []).push(p); });
+  var imgs = "";
+  STACK_ORDER.forEach(function (catId, idx) {
+    (byCat[catId] || []).forEach(function (p) {
+      var off = layout[p.id] || { dx: 0, dy: 0 };
+      var pos = "top:" + COLLAGE_POS[catId].top + "%;height:" + COLLAGE_POS[catId].height + "%;z-index:" + (idx + 1) +
+        ";transform:translate(calc(-50% + " + off.dx + "px), " + off.dy + "px);";
+      var cls = "win98-collage-img" + (editable ? " draggable" : "");
+      var handlers = editable ? " onmousedown=\"startDrag(event,'" + p.id + "')\" ontouchstart=\"startDrag(event,'" + p.id + "')\"" : "";
+      imgs += '<img src="' + p.image + '" alt="' + esc(categoryLabel(catId)) + '" draggable="false" class="' + cls + '" style="' + pos + '"' + handlers + " />";
+    });
+  });
+  var empty = items.length === 0 ? '<div class="win98-empty">Keine Teile ausgewählt.</div>' : "";
+  return '<div class="win98-collage" style="aspect-ratio:3/4">' + empty + imgs + "</div>";
+}
+
+function renderSchrank() {
+  var html = '<div class="win98-group"><div class="win98-legend">Neues Teil</div><div style="display:flex;gap:8px">';
+  html += '<label class="win98-upload-box">';
+  if (state.newImage) html += '<img src="' + state.newImage + '" alt="Vorschau" />';
+  else if (state.uploading) html += "...";
+  else html += "Foto wählen";
+  html += '<input type="file" accept="image/*" style="display:none" onchange="handleFileInput(this)" /></label>';
+  html += '<div style="flex:1"><div class="win98-field-row"><select class="win98-select" onchange="state.newCategory=this.value">';
+  CATEGORIES.forEach(function (c) {
+    html += '<option value="' + c.id + '"' + (state.newCategory === c.id ? " selected" : "") + ">" + esc(c.label) + "</option>";
+  });
+  html += '</select></div><div class="win98-field-row"><input class="win98-input" type="text" placeholder="Name (optional)" value="' + esc(state.newName) + '" oninput="state.newName=this.value" /></div>';
+  html += '<button class="win98-btn primary" style="width:100%" ' + (state.newImage ? "" : "disabled") + ' onclick="addPiece()">+ Hinzufügen</button></div></div></div>';
+
+  CATEGORIES.forEach(function (cat) {
+    var items = state.pieces.filter(function (p) { return p.category === cat.id; });
+    if (items.length === 0) return;
+    html += '<div style="margin-bottom:12px"><span class="win98-badge">' + esc(cat.label) + " (" + items.length + ')</span><div class="win98-grid3" style="margin-top:6px">';
+    items.forEach(function (p) {
+      html += '<div class="win98-thumb-wrap"><img class="win98-thumb" src="' + p.image + '" alt="' + esc(p.name || cat.label) + '" />';
+      html += '<div class="win98-thumb-del" onclick="deletePiece(\'' + p.id + "')\">×</div></div>";
+    });
+    html += "</div></div>";
+  });
+
+  if (state.pieces.length === 0) html += '<div class="win98-empty">Noch keine Teile im Schrank.</div>';
+
+  html += '<div class="win98-field-row" style="margin-top:4px">';
+  html += '<button class="win98-btn small" style="flex:1" onclick="handleExport()">Backup ↓</button>';
+  html += '<label class="win98-btn small" style="flex:1;text-align:center">Backup ↑<input type="file" accept="application/json" style="display:none" onchange="handleImportInput(this)" /></label>';
+  html += "</div>";
+  return html;
+}
+
+function renderBauen() {
+  var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  html += "<span>Klicke Teile an, um sie zu kombinieren.</span>";
+  html += '<button class="win98-btn small" ' + (state.pieces.length === 0 ? "disabled" : "") + ' onclick="randomizeSelection()">🎲 Zufall</button></div>';
+
+  if (state.pieces.length === 0) html += '<div class="win98-empty">Füge zuerst Teile im Schrank hinzu.</div>';
+
+  html += '<div class="win98-grid3">';
+  state.pieces.forEach(function (p) {
+    var selected = state.selectedIds.indexOf(p.id) !== -1;
+    html += '<div class="win98-thumb-wrap" style="cursor:pointer" onclick="togglePiece(\'' + p.id + "')\">";
+    html += '<img class="win98-thumb' + (selected ? " selected" : "") + '" src="' + p.image + '" alt="' + esc(p.name) + '" />';
+    if (selected) html += '<div class="win98-select-overlay">✓</div>';
+    html += "</div>";
+  });
+  html += "</div>";
+
+  if (state.selectedIds.length > 0) {
+    var selPieces = state.selectedIds.map(getPiece).filter(Boolean);
+    html += '<div class="win98-group" style="margin-top:14px"><div class="win98-legend">Collage</div>';
+    html += collageHtml(selPieces, state.builderLayout, true);
+    html += '<div class="win98-collage-hint">Teile lassen sich per Ziehen verschieben.</div></div>';
+
+    html += '<div class="win98-group"><div class="win98-legend">Outfit speichern (' + state.selectedIds.length + ' Teile)</div>';
+    html += '<div class="win98-field-row"><input id="outfitNameInput" class="win98-input" type="text" placeholder="Name (optional)" /></div>';
+    html += '<div id="outfitTagsWrap" style="display:flex;flex-wrap:wrap;margin-bottom:6px">';
+    allTags().forEach(function (t) {
+      html += '<label class="win98-checkbox-row"><input type="checkbox" class="outfit-tag-checkbox" value="' + esc(t) + '" /> ' + esc(t) + "</label>";
+    });
+    html += "</div>";
+    html += '<div class="win98-field-row"><input id="customTagInput" class="win98-input" type="text" placeholder="Eigener Tag..." onkeydown="if(event.key===\'Enter\')addCustomTagToPanel()" /><button class="win98-btn" onclick="addCustomTagToPanel()">+</button></div>';
+    html += '<div style="display:flex;gap:6px"><button class="win98-btn" style="flex:1" onclick="clearSelection()">Auswahl leeren</button><button class="win98-btn primary" style="flex:1" onclick="saveOutfit()">Speichern</button></div>';
+    html += "</div>";
+  }
+  return html;
+}
+
+function renderOutfits() {
+  var tags = ["Alle"].concat(allTags());
+  var html = '<div style="display:flex;flex-wrap:wrap;margin-bottom:10px">';
+  tags.forEach(function (t) {
+    var active = state.filterTag === t;
+    html += '<button class="win98-btn small" style="margin-right:4px;margin-bottom:4px;border-style:' + (active ? "inset" : "outset") + '" onclick="setFilterTag(\'' + t.replace(/'/g, "\\'") + "')\">" + esc(t) + "</button>";
+  });
+  html += "</div>";
+
+  var visible = state.filterTag === "Alle" ? state.outfits : state.outfits.filter(function (o) { return o.tags.indexOf(state.filterTag) !== -1; });
+
+  if (visible.length === 0) {
+    html += '<div class="win98-empty">Keine Outfits ' + (state.filterTag !== "Alle" ? "mit „" + esc(state.filterTag) + "“" : "gespeichert") + ".</div>";
+  }
+
+  html += '<div class="win98-outfits-grid">';
+  visible.forEach(function (o) {
+    html += '<div class="win98-outfit-card" onclick="openViewOutfit(\'' + o.id + '\')"><div class="win98-outfit-head"><span class="win98-outfit-title">' + esc(o.name) + '</span>';
+    html += '<button class="win98-btn small" onclick="event.stopPropagation();deleteOutfit(\'' + o.id + '\')">Löschen</button></div><div style="margin-bottom:6px">';
+    o.tags.forEach(function (t) { html += '<span class="win98-badge">' + esc(t) + "</span>"; });
+    html += "</div>";
+    html += collageHtml(o.pieceIds.map(getPiece).filter(Boolean), o.layout || {}, false);
+    html += "</div>";
+  });
+  html += "</div>";
+  return html;
+}
+
+function render() {
+  var body = state.tab === "schrank" ? renderSchrank() : state.tab === "bauen" ? renderBauen() : renderOutfits();
+
+  var html = '<div class="win98"><div class="win98-window">';
+  html += '<div class="win98-titlebar"><span>fit-generator-3000</span><div class="win98-title-btns"><div class="win98-title-btn">_</div><div class="win98-title-btn">□</div><div class="win98-title-btn">×</div></div></div>';
+  html += '<div class="win98-menubar">';
+  ["outfits", "schrank", "bauen"].forEach(function (t) {
+    var label = t === "outfits" ? "Outfits" : t === "schrank" ? "Schrank" : "Bauen";
+    html += '<div class="win98-tab' + (state.tab === t ? " active" : "") + '" onclick="setTab(\'' + t + "')\">" + label + "</div>";
+  });
+  html += "</div>";
+
+  if (state.toast) html += '<div class="win98-toast">' + esc(state.toast) + "</div>";
+
+  html += '<div class="win98-body">' + body + "</div>";
+
+  html += '<div class="win98-statusbar"><div class="win98-status-cell">' + state.pieces.length + ' Teile</div><div class="win98-status-cell">' + state.outfits.length + ' Outfits</div><span class="win98-status-tag">v.01 2026</span></div>';
+  html += "</div>";
+
+  if (state.viewOutfit) {
+    var o = state.viewOutfit;
+    html += '<div class="win98-dialog-overlay" onclick="closeViewOutfit()"><div class="win98-dialog win98-dialog-large" onclick="event.stopPropagation()">';
+    html += '<div class="win98-dialog-title"><span>' + esc(o.name) + '</span><div class="win98-title-btn" onclick="closeViewOutfit()">×</div></div>';
+    html += '<div class="win98-dialog-body"><div style="margin-bottom:8px">';
+    o.tags.forEach(function (t) { html += '<span class="win98-badge">' + esc(t) + "</span>"; });
+    html += "</div>";
+    html += collageHtml(o.pieceIds.map(getPiece).filter(Boolean), o.layout || {}, false);
+    html += '</div><div class="win98-dialog-actions"><button class="win98-btn" onclick="closeViewOutfit()">Schließen</button></div></div></div>';
+  }
+
+  if (state.pendingImport) {
+    html += '<div class="win98-dialog-overlay"><div class="win98-dialog">';
+    html += '<div class="win98-dialog-title"><span>Import bestätigen</span></div>';
+    html += '<div class="win98-dialog-body">Gefunden: ' + state.pendingImport.pieces.length + " Teile, " + state.pendingImport.outfits.length + " Outfits.<br />Das ersetzt deine aktuellen Daten. Fortfahren?</div>";
+    html += '<div class="win98-dialog-actions"><button class="win98-btn" onclick="cancelImport()">Abbrechen</button><button class="win98-btn primary" onclick="confirmImport()">Ja, ersetzen</button></div>';
+    html += "</div></div>";
+  }
+
+  html += "</div>";
+  document.getElementById("app").innerHTML = html;
+}
+
+load();
+render();
+</script>
+</body>
+</html>
