@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#c0c0c0" />
+<title>fit-generator-3000</title>
+<style>
+html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #c0c0c0; }
+.win98 {
+  --face: #c0c0c0;
+  --dark: #808080;
+  --darker: #0a0a0a;
+  --light: #ffffff;
+  --lighter: #dfdfdf;
+  --titlebar: linear-gradient(90deg, #000080, #1084d0);
+  --selected: #000080;
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  background: var(--face);
+  font-family: Tahoma, "Segoe UI", "MS Sans Serif", Arial, sans-serif;
+  font-size: 12px;
+  color: #000;
+  /* FIX: Hinzufügen des iOS-Sicherheitsabstands für Dynamic Island / Notch */
+  padding-top: env(safe-area-inset-top, 0px);
+  margin: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.win98 * { box-sizing: border-box; }
+.win98-window {
+  width: 100%;
+  /* FIX: Zieht den Abstand oben von der Gesamthöhe ab, damit die Statusleiste unten nicht aus dem Bildschirm rutscht */
+  height: calc(100vh - env(safe-area-inset-top, 0px));
+  height: calc(100dvh - env(safe-area-inset-top, 0px));
+  background: var(--face);
+  border: none;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+}
+.win98-titlebar {
+  background: var(--titlebar);
+  color: #fff;
+  font-weight: bold;
+  font-size: 13px;
+  padding: 3px 4px 3px 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.win98-title-btns { display: flex; gap: 2px; }
+.win98-title-btn {
+  width: 16px; height: 14px;
+  background: var(--face);
+  border: 1px outset var(--face);
+  font-size: 9px;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  color: #000;
+  font-weight: bold;
+  cursor: pointer;
+}
+.win98-menubar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--dark);
+  background: var(--face);
+  padding: 2px;
+  flex-shrink: 0;
+}
+.win98-tab {
+  flex: 1;
+  padding: 5px 4px;
+  background: var(--face);
+  border: 2px outset var(--face);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+.win98-tab.active {
+  border-style: inset;
+  background: #d4d0c8;
+}
+.win98-body {
+  padding: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--face);
+  -webkit-overflow-scrolling: touch;
+}
+.win98-collage {
+  position: relative;
+  width: 100%;
+  border: 2px inset var(--face);
+  background: #ffffff;
+  overflow: hidden;
+}
+.win98-collage-img {
+  position: absolute;
+  left: 50%;
+  object-fit: contain;
+  max-width: 78%;
+  user-select: none;
+}
+.win98-collage-img.draggable {
+  cursor: grab;
+  touch-action: none;
+}
+.win98-collage-img.draggable:active { cursor: grabbing; }
+.win98-collage-hint { font-size: 11px; color: #444; margin-top: 4px; font-style: italic; }
+.win98-dialog-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.win98-dialog {
+  width: 260px;
+  background: var(--face);
+  border: 2px outset var(--face);
+}
+.win98-dialog-large { width: min(90vw, 380px); }
+.win98-dialog-title {
+  background: var(--titlebar);
+  color: #fff;
+  font-weight: bold;
+  padding: 3px 4px 3px 6px;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.win98-dialog-body { padding: 14px 10px; font-size: 12px; }
+.win98-dialog-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 0 10px 10px; }
+.win98-statusbar {
+  border-top: 1px solid var(--light);
+  padding: 3px 6px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.win98-status-cell {
+  border: 1px inset var(--face);
+  padding: 1px 6px;
+  background: var(--face);
+}
+.win98-status-tag { margin-left: auto; color: #444; }
+.win98-group {
+  border: 2px groove #a0a0a0;
+  padding: 10px 8px 8px;
+  margin-bottom: 10px;
+  position: relative;
+}
+.win98-legend {
+  position: absolute;
+  top: -9px;
+  left: 8px;
+  background: var(--face);
+  padding: 0 4px;
+  font-weight: bold;
+}
+.win98-btn {
+  background: var(--face);
+  border: 2px outset var(--face);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+  color: #000;
+}
+.win98-btn:active { border-style: inset; }
+.win98-btn:disabled { color: #808080; cursor: default; }
+.win98-btn.primary { font-weight: bold; }
+.win98-btn.small { padding: 2px 6px; font-size: 11px; }
+.win98-input, .win98-select {
+  border: 2px inset var(--face);
+  background: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 5px;
+  width: 100%;
+}
+.win98-field-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.win98-upload-box {
+  width: 90px; height: 90px;
+  border: 2px inset var(--face);
+  background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  overflow: hidden;
+  font-size: 10px;
+  text-align: center;
+  color: #555;
+}
+.win98-upload-box img { width: 100%; height: 100%; object-fit: cover; }
+.win98-thumb-wrap { position: relative; }
+.win98-thumb {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 2px inset var(--face);
+  background: #fff;
+  display: block;
+}
+.win98-thumb.selected { border: 2px inset var(--selected); box-shadow: 0 0 0 2px var(--selected) inset; }
+.win98-thumb-del {
+  position: absolute; top: 2px; right: 2px;
+  width: 16px; height: 16px;
+  background: var(--face);
+  border: 1px outset var(--face);
+  font-size: 10px; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.win98-badge {
+  display: inline-block;
+  border: 1px solid var(--dark);
+  background: var(--face);
+  font-size: 10px;
+  padding: 1px 5px;
+  margin: 2px 3px 2px 0;
+  font-family: "Courier New", monospace;
+}
+.win98-select-overlay {
+  position: absolute; inset: 0;
+  background: rgba(0,0,128,0.35);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: bold;
+  font-size: 18px;
+}
+.win98-checkbox-row { display: flex; align-items: center; gap: 4px; margin: 3px 8px 3px 0; }
+.win98-checkbox-row input { accent-color: #000080; width: 13px; height: 13px; }
+.win98-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.win98-empty { color: #444; font-style: italic; padding: 20px 4px; text-align: center; }
+.win98-toast {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+  background: var(--face); border: 2px outset var(--face);
+  padding: 6px 14px; font-size: 12px; z-index: 999;
+}
+.win98-outfit-card { border: 2px groove #a0a0a0; padding: 8px; margin-bottom: 0; cursor: pointer; }
+.win98-outfit-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; gap: 4px; }
+.win98-outfit-title { font-weight: bold; overflow-wrap: anywhere; }
+.win98-outfits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+"use strict";
+
+var CATEGORIES = [
+  { id: "oben", label: "Oberteil" },
+  { id: "unten", label: "Hose" },
+  { id: "jacke", label: "Jacke/Mantel" },
+  { id: "schuhe", label: "Schuhe" },
+  { id: "acc", label: "Accessoire" },
+];
+var DEFAULT_TAGS = ["Casual", "Design", "Assi", "Chic", "Übergang", "Sommer", "Winter"];
+var STORAGE_KEY = "wardrobe-data";
+var STACK_ORDER = ["schuhe", "unten", "oben", "jacke", "acc"];
+var COLLAGE_POS = {
+  schuhe: { top: 76, height: 24 },
+  unten: { top: 40, height: 56 },
+  oben: { top: 16, height: 46 },
+  jacke: { top: 10, height: 52 },
+  acc: { top: 0, height: 20 },
+};
+
+var state = {
+  pieces: [],
+  outfits: [],
+  tab: "outfits",
+  toast: "",
+  newImage: null,
+  newCategory: CATEGORIES[0].id,
+  newName: "",
+  uploading: false,
+  selectedIds: [],
+  outfitName: "",
+  outfitTags: [],
+  customTag: "",
+  builderLayout: {},
+  filterTag: "Alle",
+  viewOutfit: null,
+  pendingImport: null,
+};
+
+function esc(str) {
+  return String(str == null ? "" : str).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+
+function categoryLabel(id) {
+  var c = CATEGORIES.find(function (c) { return c.id === id; });
+  return c ? c.label : id;
+}
+
+function load() {
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      var parsed = JSON.parse(raw);
+      state.pieces = parsed.pieces || [];
+      state.outfits = parsed.outfits || [];
+    }
+  } catch (e) { /* nothing saved yet */ }
+}
+
+function persist() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ pieces: state.pieces, outfits: state.outfits }));
+  } catch (e) {
+    showToast("Speichern fehlgeschlagen (Speicher voll?)");
+  }
+}
+
+var toastTimer = null;
+function showToast(msg) {
+  state.toast = msg;
+  render();
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { state.toast = ""; render(); }, 1800);
+}
+
+function compressImage(file) {
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var img = new Image();
+      img.onload = function () {
+        var maxDim = 480;
+        var width = img.width, height = img.height;
+        if (width > height && width > maxDim) {
+          height = Math.round(height * (maxDim / width));
+          width = maxDim;
+        } else if (height > maxDim) {
+          width = Math.round(width * (maxDim / height));
+          height = maxDim;
+        }
+        var canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        var ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function getPiece(id) { return state.pieces.find(function (p) { return p.id === id; }); }
+function allTags() {
+  var set = DEFAULT_TAGS.slice();
+  state.outfits.forEach(function (o) {
+    o.tags.forEach(function (t) { if (set.indexOf(t) === -1) set.push(t); });
+  });
+  return set;
+}
+
+/* ---------- actions ---------- */
+
+function setTab(t) { state.tab = t; render(); }
+
+function handleFileInput(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  state.uploading = true;
+  render();
+  compressImage(file).then(function (dataUrl) {
+    state.newImage = dataUrl;
+    state.uploading = false;
+    render();
+  }).catch(function () {
+    state.uploading = false;
+    showToast("Bild konnte nicht gelesen werden");
+  });
+}
+
+function addPiece() {
+  if (!state.newImage) return;
+  var piece = {
+    id: "p_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+    image: state.newImage,
+    category: state.newCategory,
+    name: (state.newName || "").trim(),
+  };
+  state.pieces.push(piece);
+  persist();
+  state.newImage = null;
+  state.newName = "";
+  showToast("Teil hinzugefügt");
+}
+
+function deletePiece(id) {
+  state.pieces = state.pieces.filter(function (p) { return p.id !== id; });
+  state.outfits = state.outfits
+    .map(function (o) { return Object.assign({}, o, { pieceIds: o.pieceIds.filter(function (pid) { return pid !== id; }) }); })
+    .filter(function (o) { return o.pieceIds.length > 0; });
+  state.selectedIds = state.selectedIds.filter(function (pid) { return pid !== id; });
+  persist();
+  render();
+}
+
+function togglePiece(id) {
+  var i = state.selectedIds.indexOf(id);
+  if (i === -1) state.selectedIds.push(id); else state.selectedIds.splice(i, 1);
+  render();
+}
+
+function clearSelection() {
+  state.selectedIds = [];
+  state.builderLayout = {};
+  render();
+}
+
+function saveOutfit() {
+  if (state.selectedIds.length === 0) return;
+  var name = document.getElementById("outfitNameInput");
+  var nameVal = name ? name.value.trim() : "";
+  var tagBoxes = document.querySelectorAll(".outfit-tag-checkbox");
+  var tags = [];
+  tagBoxes.forEach(function (cb) { if (cb.checked) tags.push(cb.value); });
+  var outfit = {
+    id: "o_" + Date.now(),
+    name: nameVal || ("Outfit " + (state.outfits.length + 1)),
+    tags: tags,
+    pieceIds: state.selectedIds.slice(),
+    layout: Object.assign({}, state.builderLayout),
+  };
+  state.outfits.push(outfit);
+  persist();
+  state.selectedIds = [];
+  state.builderLayout = {};
+  state.customTag = "";
+  showToast("Outfit gespeichert");
+  state.tab = "outfits";
+  render();
+}
+
+function addCustomTagToPanel() {
+  var input = document.getElementById("customTagInput");
+  var val = input ? input.value.trim() : "";
+  if (!val) return;
+  input.value = "";
+  var wrap = document.getElementById("outfitTagsWrap");
+  if (wrap && !wrap.querySelector('input[value="' + val.replace(/"/g, "") + '"]')) {
+    var label = document.createElement("label");
+    label.className = "win98-checkbox-row";
+    label.innerHTML = '<input type="checkbox" class="outfit-tag-checkbox" value="' + esc(val) + '" checked /> ' + esc(val);
+    wrap.appendChild(label);
+  }
+}
+
+function deleteOutfit(id) {
+  state.outfits = state.outfits.filter(function (o) { return o.id !== id; });
+  persist();
+  render();
+}
+
+function setFilterTag(t) { state.filterTag = t; render(); }
+
+function openViewOutfit(id) {
+  state.viewOutfit = state.outfits.find(function (o) { return o.id === id; }) || null;
+  render();
+}
+function closeViewOutfit() { state.viewOutfit = null; render(); }
+
+function randomizeSelection() {
+  var picks = [];
+  CATEGORIES.forEach(function (cat) {
+    var catPieces = state.pieces.filter(function (p) { return p.category === cat.id; });
+    if (catPieces.length > 0) picks.push(catPieces[Math.floor(Math.random() * catPieces.length)]);
+  });
+  state.selectedIds = picks.map(function (p) { return p.id; });
+  state.builderLayout = {};
+  render();
+}
+
+function handleExport() {
+  var payload = JSON.stringify({ pieces: state.pieces, outfits: state.outfits, exportedAt: new Date().toISOString() });
+  var dataUri = "data:application/json;charset=utf-8," + encodeURIComponent(payload);
+  var a = document.createElement("a");
+  a.href = dataUri;
+  a.download = "kleiderschrank-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showToast("Backup heruntergeladen");
+}
+
+function handleImportInput(input) {
+  var file = input.files && input.files[0];
+  if (!file
