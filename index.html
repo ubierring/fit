@@ -100,6 +100,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
   border: 2px inset var(--face);
   background: #ffffff;
   overflow: hidden;
+  touch-action: none; /* Verhindert ungewolltes Scrollen beim Skalieren/Verschieben */
 }
 .win98-collage-img {
   position: absolute;
@@ -242,12 +243,15 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
 .win98-checkbox-row input { accent-color: #000080; width: 13px; height: 13px; }
 .win98-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .win98-empty { color: #444; font-style: italic; padding: 20px 4px; text-align: center; }
+
+/* POPUP NACH UNTEN VERSCHOBEN FÜR DYNAMIC ISLAND */
 .win98-toast {
   position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
   background: var(--face); border: 2px outset var(--face);
   padding: 6px 14px; font-size: 12px; z-index: 999;
   box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
 }
+
 .win98-outfit-card { border: 2px groove #a0a0a0; padding: 8px; margin-bottom: 0; cursor: pointer; }
 .win98-outfit-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; gap: 4px; }
 .win98-outfit-title { font-weight: bold; overflow-wrap: anywhere; }
@@ -540,7 +544,7 @@ function confirmImport() {
 }
 function cancelImport() { state.pendingImport = null; render(); }
 
-/* ---------- drag (no full re-render while dragging, for smoothness) ---------- */
+/* ---------- drag & scale ---------- */
 
 function startDrag(e, pieceId) {
   e.preventDefault();
@@ -577,7 +581,7 @@ function collageHtml(items, layout, editable, isThumbnail) {
   items.forEach(function (p) { (byCat[p.category] = byCat[p.category] || []).push(p); });
   var imgs = "";
   
-  // Im kleinen Vorschaumodus (Outfit-Liste) skalieren wir die manuellen Verschiebungen proportional herunter
+  // Skalierungsfaktor für die kleinen Outfit-Karten in der Übersicht
   var scale = isThumbnail ? 0.45 : 1.0;
 
   STACK_ORDER.forEach(function (catId, idx) {
@@ -635,21 +639,10 @@ function renderBauen() {
   html += "<span>Klicke Teile an, um sie zu kombinieren.</span>";
   html += '<button class="win98-btn small" ' + (state.pieces.length === 0 ? "disabled" : "") + ' onclick="randomizeSelection()">🎲 Zufall</button></div>';
 
-  if (state.pieces.length === 0) html += '<div class="win98-empty">Füge zuerst Teile im Schrank hinzu.</div>';
-
-  html += '<div class="win98-grid3">';
-  state.pieces.forEach(function (p) {
-    var selected = state.selectedIds.indexOf(p.id) !== -1;
-    html += '<div class="win98-thumb-wrap" style="cursor:pointer" onclick="togglePiece(\'' + p.id + "')\">";
-    html += '<img class="win98-thumb' + (selected ? " selected" : "") + '" src="' + p.image + '" alt="' + esc(p.name) + '" />';
-    if (selected) html += '<div class="win98-select-overlay">✓</div>';
-    html += "</div>";
-  });
-  html += "</div>";
-
+  // HIER GEÄNDERT: Collage & Speichern sitzen jetzt ganz oben im Bauen-Tab!
   if (state.selectedIds.length > 0) {
     var selPieces = state.selectedIds.map(getPiece).filter(Boolean);
-    html += '<div class="win98-group" style="margin-top:14px"><div class="win98-legend">Collage</div>';
+    html += '<div class="win98-group" style="margin-top:4px"><div class="win98-legend">Collage</div>';
     html += collageHtml(selPieces, state.builderLayout, true, false);
     html += '<div class="win98-collage-hint">Teile lassen sich per Ziehen verschieben.</div></div>';
 
@@ -664,6 +657,20 @@ function renderBauen() {
     html += '<div style="display:flex;gap:6px"><button class="win98-btn" style="flex:1" onclick="clearSelection()">Auswahl leeren</button><button class="win98-btn primary" style="flex:1" onclick="saveOutfit()">Speichern</button></div>';
     html += "</div>";
   }
+
+  if (state.pieces.length === 0) html += '<div class="win98-empty">Füge zuerst Teile im Schrank hinzu.</div>';
+
+  // Die Liste aller Kleidungsstücke zum Anklicken folgt sauber darunter
+  html += '<div class="win98-grid3" style="margin-top:10px">';
+  state.pieces.forEach(function (p) {
+    var selected = state.selectedIds.indexOf(p.id) !== -1;
+    html += '<div class="win98-thumb-wrap" style="cursor:pointer" onclick="togglePiece(\'' + p.id + "')\">";
+    html += '<img class="win98-thumb' + (selected ? " selected" : "") + '" src="' + p.image + '" alt="' + esc(p.name) + '" />';
+    if (selected) html += '<div class="win98-select-overlay">✓</div>';
+    html += "</div>";
+  });
+  html += "</div>";
+
   return html;
 }
 
