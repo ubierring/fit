@@ -46,7 +46,6 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   color: #fff;
   font-weight: bold;
   font-size: 13px;
-  /* HIER WURDE NUR DER ABSTAND NACH OBEN FÜR DIE DYNAMIC ISLAND ERGÄNZT */
   padding: calc(3px + env(safe-area-inset-top, 0px)) 4px 3px 6px;
   display: flex;
   justify-content: space-between;
@@ -359,7 +358,8 @@ function compressImage(file) {
         canvas.height = height;
         var ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.72));
+        // HIER GEÄNDERT AUF image/png FÜR TRANSPARENZ
+        resolve(canvas.toDataURL("image/png"));
       };
       img.onerror = reject;
       img.src = e.target.result;
@@ -538,34 +538,99 @@ function confirmImport() {
 }
 function cancelImport() { state.pendingImport = null; render(); }
 
-/* ---------- drag (no full re-render while dragging, for smoothness) ---------- */
+/* ---------- drag & scale functionality ---------- */
 
 function startDrag(e, pieceId) {
   e.preventDefault();
+  
+  // Falls Multi-Touch (Pinch-to-Zoom für Skalierung) vorliegt
+  if (e.touches && e.touches.length === 2) {
+    startPinch(e, pieceId);
+    return;
+  }
+  
   var point = e.touches ? e.touches[0] : e;
   var startX = point.clientX, startY = point.clientY;
-  var base = state.builderLayout[pieceId] || { dx: 0, dy: 0 };
+  var base = state.builderLayout[pieceId] || { dx: 0, dy: 0, scale: 1 };
   var baseX = base.dx || 0, baseY = base.dy || 0;
+  var currentScale = base.scale || 1;
   var imgEl = e.currentTarget;
+  
   function onMove(ev) {
+    if (ev.touches && ev.touches.length === 2) return; // Zu Pinch wechseln
     var p2 = ev.touches ? ev.touches[0] : ev;
     var dx = baseX + (p2.clientX - startX);
     var dy = baseY + (p2.clientY - startY);
-    imgEl.style.transform = "translate(calc(-50% + " + dx + "px), " + dy + "px)";
-    state.builderLayout[pieceId] = { dx: dx, dy: dy };
+    imgEl.style.transform = "translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + currentScale + ")";
+    state.builderLayout[pieceId] = { dx: dx, dy: dy, scale: currentScale };
   }
+  
   function onUp() {
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("mouseup", onUp);
     window.removeEventListener("touchmove", onMove);
     window.removeEventListener("touchend", onUp);
   }
+  
   window.addEventListener("mousemove", onMove);
   window.addEventListener("mouseup", onUp);
   window.addEventListener("touchmove", onMove, { passive: false });
   window.addEventListener("touchend", onUp);
 }
+
+// Mausrad-Skalierung am Desktop
+function handleWheelScale(e, pieceId) {
+  e.preventDefault();
+  var base = state.builderLayout[pieceId] || { dx: 0, dy: 0, scale: 1 };
+  var dx = base.dx || 0;
+  var dy = base.dy || 0;
+  var currentScale = base.scale || 1;
+  
+  // Skalierungsschritt berechnen
+  var delta = e.deltaY < 0 ? 0.05 : -0.05;
+  var newScale = Math.max(0.3, Math.min(2.5, currentScale + delta));
+  
+  state.builderLayout[pieceId] = { dx: dx, dy: dy, scale: newScale };
+  e.currentTarget.style.transform = "translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + newScale + ")";
+}
+
+// Mobile Pinch-to-Zoom Skalierung (2 Finger Geste)
+function startPinch(e, pieceId) {
+  var base = state.builderLayout[pieceId] || { dx: 0, dy: 0, scale: 1 };
+  var dx = base.dx || 0;
+  var dy = base.dy || 0;
+  var baseScale = base.scale || 1;
+  var imgEl = e.currentTarget;
+  
+  function getDistance(t) {
+    var diffX = t[0].clientX - t[1].clientX;
+    var diffY = t[0].clientY - t[1].clientY;
+    return Math.sqrt(diffX * diffX + diffY * diffY);
+  }
+  
+  var startDist = getDistance(e.touches);
+  
+  function onPinchMove(ev) {
+    if (!ev.touches || ev.touches.length !== 2) return;
+    var currentDist = getDistance(ev.touches);
+    var factor = currentDist / startDist;
+    var newScale = Math.max(0.3, Math.min(2.5, baseScale * factor));
+    
+    imgEl.style.transform = "translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + newScale + ")";
+    state.builderLayout[pieceId] = { dx: dx, dy: dy, scale: newScale };
+  }
+  
+  function onPinchEnd() {
+    window.removeEventListener("touchmove", onPinchMove);
+    window.removeEventListener("touchend", onPinchEnd);
+  }
+  
+  window.addEventListener("touchmove", onPinchMove, { passive: false });
+  window.addEventListener("touchend", onPinchEnd);
+}
+
 window.startDrag = startDrag;
+window.handleWheelScale = handleWheelScale;
 
 /* ---------- rendering ---------- */
 
@@ -576,11 +641,15 @@ function collageHtml(items, layout, editable) {
   var imgs = "";
   STACK_ORDER.forEach(function (catId, idx) {
     (byCat[catId] || []).forEach(function (p) {
-      var off = layout[p.id] || { dx: 0, dy: 0 };
+      var off = layout[p.id] || { dx: 0, dy: 0, scale: 1 };
+      var dx = off.dx || 0;
+      var dy = off.dy || 0;
+      var scale = off.scale || 1;
+      
       var pos = "top:" + COLLAGE_POS[catId].top + "%;height:" + COLLAGE_POS[catId].height + "%;z-index:" + (idx + 1) +
-        ";transform:translate(calc(-50% + " + off.dx + "px), " + off.dy + "px);";
+        ";transform:translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + scale + ");";
       var cls = "win98-collage-img" + (editable ? " draggable" : "");
-      var handlers = editable ? " onmousedown=\"startDrag(event,'" + p.id + "')\" ontouchstart=\"startDrag(event,'" + p.id + "')\"" : "";
+      var handlers = editable ? " onmousedown=\"startDrag(event,'" + p.id + "')\" ontouchstart=\"startDrag(event,'" + p.id + "')\" onwheel=\"handleWheelScale(event,'" + p.id + "')\"" : "";
       imgs += '<img src="' + p.image + '" alt="' + esc(categoryLabel(catId)) + '" draggable="false" class="' + cls + '" style="' + pos + '"' + handlers + " />";
     });
   });
@@ -643,7 +712,7 @@ function renderBauen() {
     var selPieces = state.selectedIds.map(getPiece).filter(Boolean);
     html += '<div class="win98-group" style="margin-top:14px"><div class="win98-legend">Collage</div>';
     html += collageHtml(selPieces, state.builderLayout, true);
-    html += '<div class="win98-collage-hint">Teile lassen sich per Ziehen verschieben.</div></div>';
+    html += '<div class="win98-collage-hint">Ziehen = Verschieben | 2 Finger / Mausrad = Skalieren</div></div>';
 
     html += '<div class="win98-group"><div class="win98-legend">Outfit speichern (' + state.selectedIds.length + ' Teile)</div>';
     html += '<div class="win98-field-row"><input id="outfitNameInput" class="win98-input" type="text" placeholder="Name (optional)" /></div>';
