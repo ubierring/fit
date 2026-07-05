@@ -146,7 +146,6 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-  position: relative;
 }
 .win98-status-cell {
   border: 1px inset var(--face);
@@ -244,10 +243,10 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
 .win98-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .win98-empty { color: #444; font-style: italic; padding: 20px 4px; text-align: center; }
 .win98-toast {
-  position: fixed; bottom: 35px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
   background: var(--face); border: 2px outset var(--face);
   padding: 6px 14px; font-size: 12px; z-index: 999;
-  box-shadow: 1px 1px 4px rgba(0,0,0,0.2);
+  box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
 }
 .win98-outfit-card { border: 2px groove #a0a0a0; padding: 8px; margin-bottom: 0; cursor: pointer; }
 .win98-outfit-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; gap: 4px; }
@@ -321,14 +320,16 @@ function load() {
       state.pieces = parsed.pieces || [];
       state.outfits = parsed.outfits || [];
     }
-  } catch (e) { }
+  } catch (e) { /* nothing saved yet */ }
 }
 
-function persist() {
+function persist(suppressAlert) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ pieces: state.pieces, outfits: state.outfits }));
   } catch (e) {
-    showToast("Speichern fehlgeschlagen (Speicher voll?)");
+    if (!suppressAlert) {
+      showToast("Speichern fehlgeschlagen (Speicher voll?)");
+    }
   }
 }
 
@@ -407,7 +408,7 @@ function addPiece() {
     name: (state.newName || "").trim(),
   };
   state.pieces.push(piece);
-  persist();
+  persist(false);
   state.newImage = null;
   state.newName = "";
   showToast("Teil hinzugefügt");
@@ -419,7 +420,7 @@ function deletePiece(id) {
     .map(function (o) { return Object.assign({}, o, { pieceIds: o.pieceIds.filter(function (pid) { return pid !== id; }) }); })
     .filter(function (o) { return o.pieceIds.length > 0; });
   state.selectedIds = state.selectedIds.filter(function (pid) { return pid !== id; });
-  persist();
+  persist(true);
   render();
 }
 
@@ -450,7 +451,7 @@ function saveOutfit() {
     layout: Object.assign({}, state.builderLayout),
   };
   state.outfits.push(outfit);
-  persist();
+  persist(false);
   state.selectedIds = [];
   state.builderLayout = {};
   state.customTag = "";
@@ -475,7 +476,7 @@ function addCustomTagToPanel() {
 
 function deleteOutfit(id) {
   state.outfits = state.outfits.filter(function (o) { return o.id !== id; });
-  persist();
+  persist(false);
   render();
 }
 
@@ -532,14 +533,14 @@ function confirmImport() {
   if (!state.pendingImport) return;
   state.pieces = state.pendingImport.pieces;
   state.outfits = state.pendingImport.outfits;
-  persist();
+  persist(false);
   state.pendingImport = null;
   showToast("Daten importiert");
   render();
 }
 function cancelImport() { state.pendingImport = null; render(); }
 
-/* ---------- drag ---------- */
+/* ---------- drag (no full re-render while dragging, for smoothness) ---------- */
 
 function startDrag(e, pieceId) {
   e.preventDefault();
@@ -570,18 +571,20 @@ window.startDrag = startDrag;
 
 /* ---------- rendering ---------- */
 
-function collageHtml(items, layout, editable, isThumb) {
+function collageHtml(items, layout, editable, isThumbnail) {
   layout = layout || {};
   var byCat = {};
   items.forEach(function (p) { (byCat[p.category] = byCat[p.category] || []).push(p); });
   var imgs = "";
-  var scaleFactor = isThumb ? 0.46 : 1.0;
   
+  // Im kleinen Vorschaumodus (Outfit-Liste) skalieren wir die manuellen Verschiebungen proportional herunter
+  var scale = isThumbnail ? 0.45 : 1.0;
+
   STACK_ORDER.forEach(function (catId, idx) {
     (byCat[catId] || []).forEach(function (p) {
       var off = layout[p.id] || { dx: 0, dy: 0 };
-      var dx = (off.dx || 0) * scaleFactor;
-      var dy = (off.dy || 0) * scaleFactor;
+      var dx = (off.dx || 0) * scale;
+      var dy = (off.dy || 0) * scale;
       var pos = "top:" + COLLAGE_POS[catId].top + "%;height:" + COLLAGE_POS[catId].height + "%;z-index:" + (idx + 1) +
         ";transform:translate(calc(-50% + " + dx + "px), " + dy + "px);";
       var cls = "win98-collage-img" + (editable ? " draggable" : "");
@@ -632,9 +635,21 @@ function renderBauen() {
   html += "<span>Klicke Teile an, um sie zu kombinieren.</span>";
   html += '<button class="win98-btn small" ' + (state.pieces.length === 0 ? "disabled" : "") + ' onclick="randomizeSelection()">🎲 Zufall</button></div>';
 
+  if (state.pieces.length === 0) html += '<div class="win98-empty">Füge zuerst Teile im Schrank hinzu.</div>';
+
+  html += '<div class="win98-grid3">';
+  state.pieces.forEach(function (p) {
+    var selected = state.selectedIds.indexOf(p.id) !== -1;
+    html += '<div class="win98-thumb-wrap" style="cursor:pointer" onclick="togglePiece(\'' + p.id + "')\">";
+    html += '<img class="win98-thumb' + (selected ? " selected" : "") + '" src="' + p.image + '" alt="' + esc(p.name) + '" />';
+    if (selected) html += '<div class="win98-select-overlay">✓</div>';
+    html += "</div>";
+  });
+  html += "</div>";
+
   if (state.selectedIds.length > 0) {
     var selPieces = state.selectedIds.map(getPiece).filter(Boolean);
-    html += '<div class="win98-group" style="margin-top:4px"><div class="win98-legend">Collage</div>';
+    html += '<div class="win98-group" style="margin-top:14px"><div class="win98-legend">Collage</div>';
     html += collageHtml(selPieces, state.builderLayout, true, false);
     html += '<div class="win98-collage-hint">Teile lassen sich per Ziehen verschieben.</div></div>';
 
@@ -649,19 +664,6 @@ function renderBauen() {
     html += '<div style="display:flex;gap:6px"><button class="win98-btn" style="flex:1" onclick="clearSelection()">Auswahl leeren</button><button class="win98-btn primary" style="flex:1" onclick="saveOutfit()">Speichern</button></div>';
     html += "</div>";
   }
-
-  if (state.pieces.length === 0) html += '<div class="win98-empty">Füge zuerst Teile im Schrank hinzu.</div>';
-
-  html += '<div class="win98-grid3">';
-  state.pieces.forEach(function (p) {
-    var selected = state.selectedIds.indexOf(p.id) !== -1;
-    html += '<div class="win98-thumb-wrap" style="cursor:pointer" onclick="togglePiece(\'' + p.id + "')\">";
-    html += '<img class="win98-thumb' + (selected ? " selected" : "") + '" src="' + p.image + '" alt="' + esc(p.name) + '" />';
-    if (selected) html += '<div class="win98-select-overlay">✓</div>';
-    html += "</div>";
-  });
-  html += "</div>";
-
   return html;
 }
 
@@ -694,8 +696,8 @@ function renderOutfits() {
 }
 
 function render() {
-  var bodyEl = document.querySelector(".win98-body");
-  var savedScrollTop = bodyEl ? bodyEl.scrollTop : 0;
+  var bodyEl = document.querySelector('.win98-body');
+  var currentScroll = bodyEl ? bodyEl.scrollTop : 0;
 
   var body = state.tab === "schrank" ? renderSchrank() : state.tab === "bauen" ? renderBauen() : renderOutfits();
 
@@ -737,9 +739,9 @@ function render() {
   html += "</div>";
   document.getElementById("app").innerHTML = html;
 
-  var newBodyEl = document.querySelector(".win98-body");
+  var newBodyEl = document.querySelector('.win98-body');
   if (newBodyEl) {
-    newBodyEl.scrollTop = savedScrollTop;
+    newBodyEl.scrollTop = currentScroll;
   }
 }
 
