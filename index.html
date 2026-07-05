@@ -7,6 +7,11 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="theme-color" content="#c0c0c0" />
+<meta name="apple-mobile-web-app-title" content="FitGen3000" />
+
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23c0c0c0%22/><text y=%22.9em%22 x=%225%22 font-size=%2280%22>💿</text></svg>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23c0c0c0%22/><text y=%22.9em%22 x=%225%22 font-size=%2280%22>💿</text></svg>">
+
 <title>fit-generator-3000</title>
 <style>
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #c0c0c0; }
@@ -297,7 +302,7 @@ var state = {
   outfitTags: [],
   customTag: "",
   builderLayout: {},
-  activeStackOrder: [], // Hält die ID-Reihenfolge beim Verschieben für das Live-Z-Indexing fest
+  activeStackOrder: [],
   filterTag: "Alle",
   viewOutfit: null,
   pendingImport: null,
@@ -322,7 +327,7 @@ function load() {
       state.pieces = parsed.pieces || [];
       state.outfits = parsed.outfits || [];
     }
-  } catch (e) { /* nothing saved yet */ }
+  } catch (e) { }
 }
 
 function persist() {
@@ -461,7 +466,7 @@ function saveOutfit() {
     tags: tags,
     pieceIds: state.selectedIds.slice(),
     layout: Object.assign({}, state.builderLayout),
-    customOrder: state.activeStackOrder.slice() // Speichert die genaue Layer-Anordnung ab
+    customOrder: state.activeStackOrder.slice()
   };
   state.outfits.push(outfit);
   persist();
@@ -510,7 +515,6 @@ function randomizeSelection() {
   });
   state.selectedIds = picks.map(function (p) { return p.id; });
   state.builderLayout = {};
-  // Standard-Layer-Reihenfolge für den Zufallsgenerator anwenden
   state.activeStackOrder = [];
   STACK_ORDER.forEach(function (catId) {
     picks.forEach(function (p) { if (p.category === catId) state.activeStackOrder.push(p.id); });
@@ -561,7 +565,6 @@ function cancelImport() { state.pendingImport = null; render(); }
 
 /* ---------- drag & scale functionality ---------- */
 
-// Schiebt das bewegte Teil im dynamischen Stack nach ganz oben (Z-Index)
 function pushToTop(pieceId) {
   state.activeStackOrder = state.activeStackOrder.filter(function (pid) { return pid !== pieceId; });
   state.activeStackOrder.push(pieceId);
@@ -570,7 +573,6 @@ function pushToTop(pieceId) {
 function startDrag(e, pieceId) {
   e.preventDefault();
   
-  // Bringt das Element beim Antippen/Klicken sofort nach oben
   pushToTop(pieceId);
   var activeImgs = document.querySelectorAll(".win98-collage-img");
   activeImgs.forEach(function (el) {
@@ -629,7 +631,6 @@ function handleWheelScale(e, pieceId) {
   state.builderLayout[pieceId] = { dx: dx, dy: dy, scale: newScale };
   e.currentTarget.style.transform = "translate(calc(-50% + " + dx + "px), " + dy + "px) scale(" + newScale + ")";
   
-  // Z-Index-Korrektur beim Scrollen
   var dynamicZ = state.activeStackOrder.indexOf(pieceId);
   if (dynamicZ !== -1) e.currentTarget.style.zIndex = dynamicZ + 1;
 }
@@ -677,19 +678,14 @@ function collageHtml(items, layout, editable, outfitObj) {
   layout = layout || {};
   var imgs = "";
   
-  // Bestimmung der Layer-Reihenfolge
   var order = [];
   if (editable) {
-    // Im Baumodus nutzen wir die interaktive Reihenfolge
     order = state.activeStackOrder.slice();
-    // Absicherung für neu hinzukommende Elemente
     items.forEach(function (p) { if (order.indexOf(p.id) === -1) order.push(p.id); });
   } else if (outfitObj && outfitObj.customOrder && outfitObj.customOrder.length > 0) {
-    // Wenn ein gespeichertes Outfit eine eigene Anordnung hat
     order = outfitObj.customOrder.slice();
     items.forEach(function (p) { if (order.indexOf(p.id) === -1) order.push(p.id); });
   } else {
-    // Fallback auf klassische Sortierung nach Kategorie
     var byCat = {};
     items.forEach(function (p) { (byCat[p.category] = byCat[p.category] || []).push(p); });
     STACK_ORDER.forEach(function (catId) {
